@@ -1,9 +1,9 @@
-/*
+/*******************************************************************************
  * bare_minimum_test.ino
  *
  * @date: 05/02/18
  *
- */
+ ******************************************************************************/
 
 /* Thermistor Pins */
 #define THERM1_PIN A1
@@ -38,7 +38,7 @@ const int KP_AMBIENT = 15;
 const int SAFETY_CUTOFF_TEMP  = 49;  // safety temperature max
 const int GLASS_TEMP_SETPOINT = 30; // setpoint temperature at glass
 
-/* Global Variables */
+/**************************** Global Variables ********************************/
 float thermistorPin[4] = {THERM1_PIN, THERM2_PIN, THERM3_PIN, THERM4_PIN};
 float thermistorTemp[4] = {0.0, 0.0, 0.0, 0.0};
 float distance;
@@ -47,11 +47,9 @@ volatile int buttonState = 0;
 int resetFlag = 0;
 long timeEnd;
 float tempEnd;
-//boolean safetyOn = true;
 int ambientPWM;
 
-/* Function Declaration */
-
+/*************************** Function Declaration *****************************/
 // sensors
 float pollUltraSensor(int trigPin, int echoPin);
 float calibrateUltraSensor(int trigPin, int echoPin, int setupTimeS);
@@ -65,7 +63,7 @@ int Controller_Ambient(float ref_Temp_Ambient);
 // interrupt routines
 void reset_ISR();
 
-/* Setup */
+/********************************* Setup **************************************/
 void setup() {
   // thermistors
   pinMode(THERM1_PIN, INPUT);
@@ -98,7 +96,16 @@ void setup() {
   digitalWrite(RED_LED_PIN, HIGH);
   digitalWrite(GREEN_LED_PIN, LOW);
 
-  Serial.println("Running ambient heating controller");
+  Serial.println("Running ambient heating controller"); // for debugging
+  /*****************************************************************************
+   * PRE-TEST: RUN AMBIENT CONTROLLER TO WARM GLASS
+   *
+   * Before any tests can be run, the glass temperature must be at >= 30 deg C.
+   * (1): read the current temperature from the thermistor.
+   * (2): run the ambient controller to calculate a PWM.
+   * (3): write the pwm value to the ambient heater MOSFET.
+   * (4): delay for 250ms (4Hz)
+   ****************************************************************************/
   while(thermistorTemp[2] < GLASS_TEMP_SETPOINT)
   {
     thermistorTemp[2] = readThermistor(thermistorPin[2]);
@@ -108,11 +115,12 @@ void setup() {
     Serial.println(thermistorTemp[2]);
     delay(250);
   }
-  Serial.println("Ideal glass temperature reached..");
+  Serial.println("Ideal glass temperature reached.."); // for debugging
+
+  digitalWrite(RED_LED_PIN, LOW); // turn the RED LED off
 }
 
-
-/* loop */
+/********************************** loop **************************************/
 void loop() {
   /*****************************************************************************
    * A. INTERRUPT RESET CASE
@@ -171,7 +179,8 @@ void loop() {
     distance = pollUltraSensor(TRIG_PIN, ECHO_PIN);
 
     // 4. Read the thermistors one at a time
-    for (int i = 0; i < NUM_THERM; i++) {
+    for (int i = 0; i < NUM_THERM; i++)
+    {
       thermistorTemp[i] = readThermistor(thermistorPin[i]);
       Serial.print(thermistorTemp[i]);
       Serial.print(", ");
