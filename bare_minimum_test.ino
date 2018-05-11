@@ -10,33 +10,33 @@
 #define THERM2_PIN A2
 #define THERM3_PIN A3
 #define THERM4_PIN A4
-#define NUM_THERM 4
+const int NUM_THERM = 4;
 
 /* Thermistor Constants */
-#define BETA        3380
-#define ROOM_TEMP_K 298.0
+const int BETA = 3380;
+const float ROOM_TEMP_K = 298.0;
 
 /* Ultrasonic Sensor */
-#define TRIG_PIN       5  // Ultrasonic sensor
-#define ECHO_PIN       3  // Ultrasonic sensor
-#define GREEN_LED_PIN  7
-#define RED_LED_PIN    6
-#define BUTTON_PIN     2
-#define SETUP_TIME_S   5  // amount of time to calibrate the ultrasonic sensor
-#define DIST_THRESHOLD 1.3 // trigger the end of the test
+const int TRIG_PIN = 5;  // Ultrasonic sensor
+const int ECHO_PIN = 3;  // Ultrasonic sensor
+const int GREEN_LED_PIN = 7;
+const int RED_LED_PIN = 6;
+const int BUTTON_PIN = 2;
+const int SETUP_TIME_S = 5;  // amount of time to calibrate the ultrasonic sensor
+const float DIST_THRESHOLD = 1.3; // trigger the end of the test
 
 /* Focal PWM Value */
-#define FOCAL_PWM_PIN      9 // CHANGE
-#define FOCAL_PWM_VAL      0.25 * 255
+const int FOCAL_PWM_PIN = 9;
+const float FOCAL_PWM_VAL = 0.25 * 255;
 
 /* Ambient PWM Value */
-#define AMBIENT_PWM_PIN  10
-#define KI_AMBIENT  1
-#define KP_AMBIENT  15
+const int AMBIENT_PWM_PIN = 10;
+const int KI_AMBIENT = 1;
+const int KP_AMBIENT = 15;
 
 /* Other constants */
-#define SAFETY_CUTOFF_TEMP 49  // safety temperature max
-#define GLASS_TEMP_SETPOINT 30 // setpoint temperature at glass
+const int SAFETY_CUTOFF_TEMP  = 49;  // safety temperature max
+const int GLASS_TEMP_SETPOINT = 30; // setpoint temperature at glass
 
 /* Global Variables */
 float thermistorPin[4] = {THERM1_PIN, THERM2_PIN, THERM3_PIN, THERM4_PIN};
@@ -47,12 +47,22 @@ volatile int buttonState = 0;
 int resetFlag = 0;
 long timeEnd;
 float tempEnd;
-boolean safetyOn = true;
+//boolean safetyOn = true;
 int ambientPWM;
 
 /* Function Declaration */
+
+// sensors
 float pollUltraSensor(int trigPin, int echoPin);
 float calibrateUltraSensor(int trigPin, int echoPin, int setupTimeS);
+float readThermistor(int pin);
+
+// heaters
+void writeToFocalHeater(int PWM);
+void writeToAmbientHeater(int PWM);
+int Controller_Ambient(float ref_Temp_Ambient);
+
+// interrupt routines
 void reset_ISR();
 
 /* Setup */
@@ -192,7 +202,6 @@ void loop() {
       // will run in this loop until the button is pressed again
       digitalWrite(GREEN_LED_PIN, LOW);
       digitalWrite(RED_LED_PIN, HIGH);
-//      Serial.println("Waiting for reset");
     }
   }
   /****************************************************************************/
@@ -311,31 +320,29 @@ void writeToAmbientHeater(int PWM) {
  * the housing temperature at ref_Temp_Ambient.
  */
 int Controller_Ambient(float ref_Temp_Ambient) {
-    // static variables initialize once, the first time the function is called
-    static float cumalitiveError = 0;
-    static float I_term = 0;
-    float P_term = 0;
+  // static variables initialize once, the first time the function is called
+  static float cumalitiveError = 0;
+  static float I_term = 0;
+  float P_term = 0;
 
-    // update current error
-//    float currError = ref_Temp_Ambient - state_Now.temp_Ambient;
-    float currError = ref_Temp_Ambient - thermistorTemp[2];
+  // update current error
+  float currError = ref_Temp_Ambient - thermistorTemp[2];
 
-    // sum up cumalitive error
-    cumalitiveError += currError;
+  // sum up cumalitive error
+  cumalitiveError += currError;
 
-    // PI control
-    I_term = KI_AMBIENT * cumalitiveError;
-    P_term = KP_AMBIENT * currError;
+  // PI control
+  I_term = KI_AMBIENT * cumalitiveError;
+  P_term = KP_AMBIENT * currError;
 
-    // keep control outputs between analogWrite bounds
-    int control_output = (int) (I_term + P_term);
-    if (control_output > 255) {
-        control_output = 255;
-    } else if (control_output < 0) {
-        control_output = 0;
-    }
-//    state_Now.duty_Ambient = control_output;
-    ambientPWM = control_output;
-//    return state_Now.duty_Ambient;
-    return ambientPWM;
+  // keep control outputs between analogWrite bounds
+  int control_output = (int) (I_term + P_term);
+  if (control_output > 255) {
+      control_output = 255;
+  } else if (control_output < 0) {
+      control_output = 0;
+  }
+  ambientPWM = control_output;
+
+  return ambientPWM;
 }
