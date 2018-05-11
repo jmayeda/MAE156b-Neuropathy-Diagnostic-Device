@@ -98,6 +98,7 @@ void setup() {
   digitalWrite(GREEN_LED_PIN, LOW);
 
   Serial.println("Running ambient heating controller"); // for debugging
+
   /*****************************************************************************
    * PRE-TEST: RUN AMBIENT CONTROLLER TO WARM GLASS
    *
