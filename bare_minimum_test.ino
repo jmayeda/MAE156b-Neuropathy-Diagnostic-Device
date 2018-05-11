@@ -39,6 +39,7 @@ const int SAFETY_CUTOFF_TEMP  = 49;  // safety temperature max
 const int GLASS_TEMP_SETPOINT = 30; // setpoint temperature at glass
 
 /**************************** Global Variables ********************************/
+// TODO: cleanup global variables and add states structs
 float thermistorPin[4] = {THERM1_PIN, THERM2_PIN, THERM3_PIN, THERM4_PIN};
 float thermistorTemp[4] = {0.0, 0.0, 0.0, 0.0};
 float distance;
@@ -165,7 +166,7 @@ void loop() {
    *                               the glass is at a safe temperature (<50degC)
    ****************************************************************************/
   if ((distance < DIST_THRESHOLD * avgDistMM  || resetFlag == 1) \
-    && thermistorTemp[0] < SAFETY_CUTOFF_TEMP)
+    && thermistorTemp[2] < SAFETY_CUTOFF_TEMP)
   {
     // 1. Reset the reset flag
     resetFlag = 0;
@@ -194,7 +195,11 @@ void loop() {
    * D. STOP CONDITIONS REACHED or WAITING FOR RESET
    *
    * This is the intermediate state between the reset routine and the main
-   * running case. In this state the focal heater will be turned off, and the
+   * running case. This state will be triggered by either
+   *    (1): motion detected
+   *    (2): interrupt from button
+   *    (3): maximum temperature is reached
+   * if In this state the focal heater will be turned off, and the
    * test will be waiting for a reset.
    ****************************************************************************/
   else
@@ -206,11 +211,13 @@ void loop() {
     Serial.print("Temperature end: ");
     Serial.println(tempEnd);
 
+    // Will stay in this case until the reset button is pressed.
     while (!buttonState) // while button state is low
     {
       // will run in this loop until the button is pressed again
       digitalWrite(GREEN_LED_PIN, LOW);
       digitalWrite(RED_LED_PIN, HIGH);
+      // waiting for reset...
     }
   }
   /****************************************************************************/
