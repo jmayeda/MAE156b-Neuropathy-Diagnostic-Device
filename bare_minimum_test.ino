@@ -59,7 +59,7 @@ float readThermistor(int pin);
 // heaters
 void writeToFocalHeater(int PWM);
 void writeToAmbientHeater(int PWM);
-int Controller_Ambient(float ref_Temp_Ambient);
+int controllerAmbient(float ref_Temp_Ambient);
 
 // interrupt routines
 void reset_ISR();
@@ -111,7 +111,7 @@ void setup() {
   while(thermistorTemp[2] < GLASS_TEMP_SETPOINT)
   {
     thermistorTemp[2] = readThermistor(thermistorPin[2]);
-    ambientPWM = Controller_Ambient(GLASS_TEMP_SETPOINT);
+    ambientPWM = controllerAmbient(GLASS_TEMP_SETPOINT);
     writeToAmbientHeater(ambientPWM);
     Serial.print("Glass temp: ");
     Serial.println(thermistorTemp[2]);
@@ -152,7 +152,7 @@ void loop() {
    ****************************************************************************/
   if(thermistorTemp[2] < GLASS_TEMP_SETPOINT) {
     thermistorTemp[2] = readThermistor(thermistorPin[2]);
-    ambientPWM = Controller_Ambient(GLASS_TEMP_SETPOINT);
+    ambientPWM = controllerAmbient(GLASS_TEMP_SETPOINT);
     writeToAmbientHeater(ambientPWM);
   }
   /*****************************************************************************
@@ -331,12 +331,12 @@ void writeToAmbientHeater(int PWM) {
 }
 
 /*
- * int Controller_Ambient(float ref_Temp_Ambient)
+ * int controllerAmbient(float ref_Temp_Ambient)
  *
  * Implement controller algorithim for the ambient heater to maintain
  * the housing temperature at ref_Temp_Ambient.
  */
-int Controller_Ambient(float ref_Temp_Ambient) {
+int controllerAmbient(float ref_Temp_Ambient) {
   // static variables initialize once, the first time the function is called
   static float cumalitiveError = 0;
   static float I_term = 0;
