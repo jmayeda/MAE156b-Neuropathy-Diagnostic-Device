@@ -5,7 +5,7 @@
 
 /* HEATERS */
   // Ambient //
-const int KI_AMBIENT       = 1; //PI controller gains for ambient temp
+const int KI_AMBIENT       = 0; //PI controller gains for ambient temp
 const int KP_AMBIENT       = 15;
 const float GLASS_TEMP_SETPOINT = 30.0; // what temp are we aiming for in ambient
 const int THERMISTOR_AMBIENT_NUM = 2;
@@ -13,9 +13,9 @@ const int THERMISTOR_AMBIENT_NUM = 2;
 const float FOCAL_PWM_VAL  = 0.25 * 255; // set to constant output
 
 // LCD Constants
-const int TEMP_START_COL   = 6; //[2,6] start coordinate
+const int TEMP_START_COL   = 12; //[2,6] start coordinate
 const int TEMP_START_ROW   = 2;
-const int TIME_START_COL   = 6; //[3,6] start coordinate currently
+const int TIME_START_COL   = 12; //[3,6] start coordinate currently
 const int TIME_START_ROW   = 3;
 const int STATUS_START_COL = 8; //1,8 start coordinate for word STATUS
 const int STATUS_START_ROW = 1;
@@ -29,7 +29,7 @@ const float SAFETY_CUTOFF_TEMP  = 49.0; //what is too hot?
 /* Thermistor Constants */
 const int BETA             = 3380;
 const float ROOM_TEMP_K    = 298.0;
-const int NUM_THERM        = 5;
+const int NUM_THERM        = 4;
 
 /* Ultrasonic Constants*/
 const int SETUP_TIME_S = 5;  // amount of time to calibrate the ultrasonic sensor
@@ -39,29 +39,31 @@ const float DIST_THRESHOLD = 1.3; // trigger the end of the test
 // Pin definitions
 
 //BUTTONS
-const int START_BUTTON_PIN = 2;
-const int RESET_BUTTON_PIN = 19;
-const int STOP_BUTTON_PIN  = 18;
+const int START_BUTTON_PIN = 18;
+const int RESET_BUTTON_PIN = 3;
+const int STOP_BUTTON_PIN  = 2;
 
 //LED
-const int GREEN_LED_PIN    = 8;
-const int RED_LED_PIN      = 7;
-const int YELLOW_LED_PIN   = 6;
+const int GREEN_LED_PIN    = 38;
+const int RED_LED_PIN      = 40;
+const int YELLOW_LED_PIN   = 42;
 
 /* Thermistor Pins */
-const int THERM1_PIN       = A1;
-const int THERM2_PIN       = A2;
-const int THERM3_PIN       = A3;
-const int THERM4_PIN       = A4;
-const int THERM5_PIN       = A5;
+#define THERM0_PIN        A0
+#define THERM1_PIN        A1
+#define THERM2_PIN        A2
+#define THERM3_PIN        A3
+
+// Power measurement
+const int SHUNT_PIN        = A7;
 
 /* PWM pins */
-const int FOCAL_PWM_PIN    = 9;
-const int AMBIENT_PWM_PIN  = 10;
+const int FOCAL_PWM_PIN    = 4;
+const int AMBIENT_PWM_PIN  = 5;
 
 // UltraSonic
-const int TRIG_PIN         = 5;  // Ultrasonic sensor
-const int ECHO_PIN         = 3;  // Ultrasonic sensor
+const int TRIG_PIN         = 12;  // Ultrasonic sensor
+const int ECHO_PIN         = 13;  // Ultrasonic sensor
 
 
 
@@ -95,6 +97,9 @@ typedef struct state_t {
     float distance;
 
     //Results
+    unsigned long Time;
+    unsigned long Results_Time;
+    float         Results_Temp;
 
 
 }state_t;
@@ -105,7 +110,12 @@ volatile float resetTimer    = 0; // initialize timer //TODO: replace with ambie
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Function Declarations
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//Debugging
+void STATUS2Serial();
+
+
 // sensors
+void MEASURE();
 float pollUltraSensor(int trigPin, int echoPin);
 float calibrateUltraSensor(int trigPin, int echoPin, int setupTimeS);
 float readThermistor(int pin);
@@ -126,23 +136,43 @@ void RESET_ISR();
 void START_ISR();
 void STOP_ISR();
 
+//Safety
 void SAFETY();
+
+
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //SETUP
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void setup() {
     // initialize state of device
-    STATUS.Stop     = false; // device is not stopped
-    STATUS.Reset    = true; // device has been reset
+    STATUS.Stop     = true; // device is not stopped
+    STATUS.Reset    = false; // device has been reset
     STATUS.Ready    = false; // device is not ready
     STATUS.Running  = false; // device is not running
     STATUS.Done     = false;
     // setup the pin modes
     pinMode(RED_LED_PIN, OUTPUT);
     pinMode(GREEN_LED_PIN, OUTPUT);
+    pinMode(YELLOW_LED_PIN, OUTPUT);
     pinMode(START_BUTTON_PIN, INPUT);
     pinMode(RESET_BUTTON_PIN, INPUT);
     pinMode(STOP_BUTTON_PIN, INPUT);
+
+    pinMode(THERM0_PIN, INPUT);
+    pinMode(THERM1_PIN, INPUT);
+    pinMode(THERM2_PIN, INPUT);
+    pinMode(THERM3_PIN, INPUT);
+
+    pinMode(FOCAL_PWM_PIN,OUTPUT);
+    pinMode(AMBIENT_PWM_PIN,OUTPUT);
+
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+
+    pinMode(SHUNT_PIN,INPUT);
+
+
 
     setupLCD();
     updateStatusLCD("Initializing..");
@@ -159,69 +189,42 @@ void setup() {
 //LOOP
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void loop() {
-  //MEASURE();
-  SAFETY();
-    // put your main code here, to run repeatedly:
+    MEASURE();
+    SAFETY();
+    Serial.print(" MAIN ");
+    STATUS2Serial();
+
+
+
     if (STATUS.Stop){
+        Serial.print(" STOP ");
         STOPPED();
         // stays in limbo until hit RESET button
         // turn off focal heater and ambient heater
     }
     else if (STATUS.Reset && !STATUS.Stop){
+        Serial.print(" RESET ");
         RESET();
         // ambient heating controller
     }
     else if (STATUS.Ready && !STATUS.Stop){
+        Serial.print(" READY ");
         READY();
         // ambient temp is REACHED
         // ready for motion sensors calibration
         // move to START when START button is pressed
     }
-    else if (STATUS.Running && !STATUS.Stop){
+//////// RUN THE TEST ////////////
+    else if (STATUS.Running && !STATUS.Stop){   // run the test
 
-        START();
-        unsigned long timeStart = millis();
-        while(!STATUS.Stop) {
-              Serial.print("IN START,     Stp : ");
-              Serial.print(STATUS.Stop);
-              Serial.print(",     Rstt: ");
-              Serial.print(STATUS.Reset);
-              Serial.print(",     Rdy: ");
-              Serial.print(STATUS.Ready);
-              Serial.print(",     Run: ");
-              Serial.print(STATUS.Running);
-              Serial.print(",     Done: ");
-              Serial.println(STATUS.Done);
+        START(); // begin test
 
-              // do all of the test
-              /**
-               * 1. ambient controller
-               * 2. measure temperatures and current measurement
-               * 3. run focal controller
-               *
-               */
 
-              Status.Time = millis() - timeStart;
-              updateLCD(STATUS.Temp_Focal,STATUS.Time);
-        }
-        unsigned long timeEnd = millis();
-        STATUS.Results[1] = timeEnd-timeStart;
-        STATUS.Results[0] = STATUS.Temp_Focal;
-        updateLCD(STATUS.Results[0],STATUS.Results[1]);
     }
+    //////// END THE TEST ////////////
 
 
 
-    Serial.print(",     Stp : ");
-    Serial.print(STATUS.Stop);
-    Serial.print(",     Rstt: ");
-    Serial.print(STATUS.Reset);
-    Serial.print(",     Rdy: ");
-    Serial.print(STATUS.Ready);
-    Serial.print(",     Run: ");
-    Serial.print(STATUS.Running);
-    Serial.print(",     Done: ");
-    Serial.println(STATUS.Done);
 }
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //STATE FUNCTIONS IN LOOP
@@ -230,6 +233,7 @@ void loop() {
 /////////////////////////////
 void STOPPED(){
     // indicators
+    digitalWrite(YELLOW_LED_PIN,LOW);
     digitalWrite(RED_LED_PIN,HIGH);
     digitalWrite(GREEN_LED_PIN,LOW);
     writeToFocalHeater(0);
@@ -237,11 +241,10 @@ void STOPPED(){
 
     if (STATUS.Done){ // if we just finished a test
         updateStatusLCD("Results");
-        updateLCD(STATUS.Results[0],STATUS.Results[1]);
-        //updateLCD(STATUS.Results)
+        updateLCD(STATUS.Results_Temp,STATUS.Results_Time);
     }
     else{ //otherwise
-        updateStatusLCD("Stopped.");
+        updateStatusLCD("Stopped");
         updateLCD(STATUS.Temp_Focal,0);
     }
     return;
@@ -257,9 +260,10 @@ void RESET(){
     digitalWrite(YELLOW_LED_PIN,HIGH);
 
     // Run Ambient controller but make sure focal is off
-    STATUS.PWM_Ambient = controllerAmbient(GLASS_TEMP_SETPOINT, &STATUS);
+    STATUS.PWM_Ambient = controllerAmbient(GLASS_TEMP_SETPOINT);// &STATUS);
     writeToAmbientHeater(STATUS.PWM_Ambient);
     writeToFocalHeater(0);
+
     updateStatusLCD("Resetting");
     updateLCD(STATUS.Temp_Focal,0);
 
@@ -267,6 +271,7 @@ void RESET(){
         STATUS.Reset = false;
         STATUS.Ready = true ;
     }
+
     return;
 }
 
@@ -275,15 +280,17 @@ void READY(){
 
     SAFETY();
     // indicators
+    digitalWrite(YELLOW_LED_PIN,LOW);
     digitalWrite(RED_LED_PIN,LOW);
     digitalWrite(GREEN_LED_PIN,HIGH);
 
     // Still run Ambient controller, focal still off
-    STATUS.PWM_Ambient = controllerAmbient(GLASS_TEMP_SETPOINT, &STATUS);
+    STATUS.PWM_Ambient = controllerAmbient(GLASS_TEMP_SETPOINT);// &STATUS);
     writeToAmbientHeater(STATUS.PWM_Ambient);
     writeToFocalHeater(0);
     updateStatusLCD("Ready");
     updateLCD(STATUS.Temp_Focal,0);
+
     return;
 }
 
@@ -291,10 +298,35 @@ void READY(){
 void START(){
     digitalWrite(RED_LED_PIN,LOW);
     digitalWrite(GREEN_LED_PIN,HIGH);
-    delay(200);
-    digitalWrite(GREEN_LED_PIN,LOW);
-    delay(200);
+    digitalWrite(YELLOW_LED_PIN,HIGH);
     updateStatusLCD("Running");
+    // CALIBRATE
+    unsigned long timeStart = millis()/1000;
+
+    while(!STATUS.Stop) {
+        MEASURE();
+        SAFETY();
+        Serial.print(" RUNNING ");
+        STATUS2Serial();
+
+        /* 1. ambient controller */
+        STATUS.PWM_Ambient = controllerAmbient(GLASS_TEMP_SETPOINT);// &STATUS);
+        writeToAmbientHeater(STATUS.PWM_Ambient);
+        /* 2. measure temperatures and current measurement */
+        STATUS.PWM_Focal = FOCAL_PWM_VAL;
+        /* 3. run focal controller
+        *
+        */
+
+        STATUS.Time = millis()/1000 - timeStart;
+        updateLCD(STATUS.Temp_Focal,STATUS.Time);
+        delay(100);
+
+    }
+    unsigned long timeEnd = millis()/1000;
+    STATUS.Results_Time = timeEnd-timeStart;
+    STATUS.Results_Temp = STATUS.Temp_Focal;
+    updateLCD(STATUS.Results_Temp,STATUS.Results_Time);
     return;
 }
 
@@ -305,14 +337,14 @@ void START(){
 //CONTROLLERS
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-int controllerAmbient(float ref_Temp_Ambient, state_t* state) {
+int controllerAmbient(float ref_Temp_Ambient){ //state_t* state) {
   // static variables initialize once, the first time the function is called
   static float cumalitiveError = 0;
   static float I_term = 0;
   float P_term = 0;
 
   // update current error
-  float currError = ref_Temp_Ambient - state->Temp[THERMISTOR_AMBIENT_NUM];
+  float currError = ref_Temp_Ambient - STATUS.Temp[THERMISTOR_AMBIENT_NUM];
 
   // sum up cumalitive error
   cumalitiveError += currError;
@@ -350,8 +382,8 @@ void RESET_ISR() {
         STATUS.Stop   = false;
         STATUS.Running = false;
         STATUS.Done = false;
-//        *STATUS = "Resetting...";
-        // TODO
+        //*STATUS = "Resetting...";
+
     }
     resetTimer = millis();
     return;
@@ -366,23 +398,20 @@ void STOP_ISR() {
     STATUS.Ready = false;
     STATUS.Running = false;
     STATUS.Done = false;
-//    *STATUS = "Stopped";
+    //    *STATUS = "Stopped";
     return;
 }
 
 /////////////////////////////
 void START_ISR() {
     // if ready, start the test
-    Serial.println("hello");
     if (STATUS.Running == true){
-        Serial.println("what");
         STATUS.Running  = false ;
         STATUS.Stop     = true ;
         STATUS.Done     = true ;
 
     }
     else if (STATUS.Ready == true){
-        Serial.println("fuck");
         STATUS.Running  = true;
         STATUS.Ready    = false ;
         STATUS.Stop     = false ;
@@ -404,15 +433,15 @@ void setupLCD() {
     lcd.print("WinSanTor");
     lcd.setCursor(0,1);
     lcd.print("Status: ");
-    lcd.setCursor(0,2);
-    lcd.print("Temp: ");
+    lcd.setCursor(2,2);
+    lcd.print("Temp(C): ");
     lcd.print("100");
-    lcd.setCursor(0,3);
-    lcd.print("Time: ");
+    lcd.setCursor(2,3);
+    lcd.print("Time(s): ");
     lcd.print("60");
 }
 
-void updateLCD(int temp, int times) {
+void updateLCD(int temp, unsigned long times) {
     // set cursor to print the temperature
     clearLCDLine(TEMP_START_COL, LCD_MAX_COL, TEMP_START_ROW);
     lcd.print(String(temp));
@@ -438,6 +467,18 @@ void clearLCDLine(int startColIdx, int endColIdx, int row) {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //SENSOR MEASUREMENTS
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void MEASURE(){
+    STATUS.Temp[0] = readThermistor(THERM0_PIN);
+    STATUS.Temp[1] = readThermistor(THERM1_PIN);
+    STATUS.Temp[2] = readThermistor(THERM2_PIN);
+    STATUS.Temp[3] = readThermistor(THERM3_PIN);
+
+
+}
+
+
+
+
 /**
  * Calibrate the ultrasonic sensor with the distance to the stationary hand.
  * @param  trigPin    ultrasonic sensor
@@ -546,5 +587,21 @@ void SAFETY(){
             updateLCD(STATUS.Temp_Focal, millis()-cooling );
         }
     }
+
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//Debugging
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void STATUS2Serial(){
+    Serial.print(",     Temps : ");
+    for (int i=0; i<NUM_THERM; i++){
+      Serial.print( (int)STATUS.Temp[i]);
+      Serial.print(", ");
+    }
+    Serial.print("      PWM_A: ");
+    Serial.print(STATUS.PWM_Ambient);
+    Serial.print(",     PWM_Focal: ");
+    Serial.println(STATUS.PWM_Focal);
 
 }
