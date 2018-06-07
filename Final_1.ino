@@ -6,16 +6,19 @@
 /* HEATERS */
   // Ambient //
 const int KI_AMBIENT       = 0; //PI controller gains for ambient temp
-const int KP_AMBIENT       = 15;
+const int KP_AMBIENT       = 30;
 const float GLASS_TEMP_SETPOINT = 30.0; // what temp are we aiming for in ambient
 const int THERMISTOR_AMBIENT_NUM = 2;
+const int AMBIENT_INDEX = 3; // Ambient  thermistor is the 2nd index of therm array
+
   // Focal //
 const float FOCAL_PWM_VAL  = 0.25 * 255; // set to constant output
+const int FOCAL_INDEX = 2; // FOCAL thermistor is the third index of thermistor array
 
 // LCD Constants
-const int TEMP_START_COL   = 12; //[2,6] start coordinate
+const int TEMP_START_COL   = 11; //[2,6] start coordinate
 const int TEMP_START_ROW   = 2;
-const int TIME_START_COL   = 12; //[3,6] start coordinate currently
+const int TIME_START_COL   = 11; //[3,6] start coordinate currently
 const int TIME_START_ROW   = 3;
 const int STATUS_START_COL = 8; //1,8 start coordinate for word STATUS
 const int STATUS_START_ROW = 1;
@@ -216,10 +219,7 @@ void loop() {
     }
 //////// RUN THE TEST ////////////
     else if (STATUS.Running && !STATUS.Stop){   // run the test
-
         START(); // begin test
-
-
     }
     //////// END THE TEST ////////////
 
@@ -314,6 +314,7 @@ void START(){
         writeToAmbientHeater(STATUS.PWM_Ambient);
         /* 2. measure temperatures and current measurement */
         STATUS.PWM_Focal = FOCAL_PWM_VAL;
+        writeToFocalHeater(STATUS.PWM_Focal);
         /* 3. run focal controller
         *
         */
@@ -473,6 +474,8 @@ void MEASURE(){
     STATUS.Temp[2] = readThermistor(THERM2_PIN);
     STATUS.Temp[3] = readThermistor(THERM3_PIN);
 
+    STATUS.Temp_Focal = STATUS.Temp[FOCAL_INDEX];
+    STATUS.Temp_Ambient = STATUS.Temp[AMBIENT_INDEX];
 
 }
 
@@ -578,14 +581,23 @@ void writeToAmbientHeater(int PWM) {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void SAFETY(){
 
-    if (STATUS.Temp_Ambient > SAFETY_CUTOFF_TEMP || STATUS.Temp_Focal > SAFETY_CUTOFF_TEMP) {
+    // if (STATUS.Temp_Ambient > SAFETY_CUTOFF_TEMP || STATUS.Temp_Focal > SAFETY_CUTOFF_TEMP) {
+    //     writeToFocalHeater(0);
+    //     writeToAmbientHeater(0);
+    //     updateStatusLCD("Overheat");
+    //     float cooling = millis();
+    //     while (millis() - cooling < 10.0 ){
+    //         updateLCD(STATUS.Temp_Focal, millis()-cooling );
+    //     }
+    // }
+    // DEBUG: changed from if() to while() because it wasnt stopping the test
+    while (STATUS.Temp_Ambient > SAFETY_CUTOFF_TEMP || STATUS.Temp_Focal > SAFETY_CUTOFF_TEMP) {
         writeToFocalHeater(0);
         writeToAmbientHeater(0);
-        updateStatusLCD("Overheat");
-        float cooling = millis();
-        while (millis()-cooling < 10.0 ){
-            updateLCD(STATUS.Temp_Focal, millis()-cooling );
-        }
+        updateStatusLCD("Overheated.");
+        digitalWrite(RED_LED_PIN, HIGH);
+        delay(250);
+        digitalWrite(RED_LED_PIN, LOW);
     }
 
 }
