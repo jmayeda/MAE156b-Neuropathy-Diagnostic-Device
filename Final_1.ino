@@ -9,11 +9,11 @@ const int KI_AMBIENT       = 0; //PI controller gains for ambient temp
 const int KP_AMBIENT       = 30;
 const float GLASS_TEMP_SETPOINT = 30.0; // what temp are we aiming for in ambient
 const int THERMISTOR_AMBIENT_NUM = 2;
-const int AMBIENT_INDEX = 3; // Ambient  thermistor is the 2nd index of therm array
+const int AMBIENT_INDEX = 2; // Ambient  thermistor is the 2nd index of therm array
 
   // Focal //
 const float FOCAL_PWM_VAL  = 0.25 * 255; // set to constant output
-const int FOCAL_INDEX = 2; // FOCAL thermistor is the third index of thermistor array
+const int FOCAL_INDEX = 3; // FOCAL thermistor is the third index of thermistor array
 
 // LCD Constants
 const int TEMP_START_COL   = 11; //[2,6] start coordinate
@@ -27,7 +27,8 @@ const int LCD_MAX_ROW      = 3;
 const int WAIT_TIME        = 5000; //time to reset
 
 // Safety //
-const float SAFETY_CUTOFF_TEMP  = 49.0; //what is too hot?
+const float SAFETY_CUTOFF_TEMP  = 60.0; //what is too hot?
+const float SAFETY_CUTOFF_TEMP_AMBIENT = 40.0;
 
 /* Thermistor Constants */
 const int BETA             = 3380;
@@ -217,7 +218,7 @@ void loop() {
         // ready for motion sensors calibration
         // move to START when START button is pressed
     }
-//////// RUN THE TEST ////////////
+    //////// RUN THE TEST ////////////
     else if (STATUS.Running && !STATUS.Stop){   // run the test
         START(); // begin test
     }
@@ -267,9 +268,10 @@ void RESET(){
     updateStatusLCD("Resetting");
     updateLCD(STATUS.Temp_Focal,0);
 
-    if ((millis()-resetTimer) > WAIT_TIME) {
-        STATUS.Reset = false;
-        STATUS.Ready = true ;
+    // we will stay in the "RESET" state until the ambient temp has reached setpoint
+    if (STATUS.Temp_Ambient >= GLASS_TEMP_SETPOINT) {
+        STATUS.Reset = false; // exit the resetting case
+        STATUS.Ready = true ; // enter the running case
     }
 
     return;
@@ -299,12 +301,21 @@ void START(){
     digitalWrite(RED_LED_PIN,LOW);
     digitalWrite(GREEN_LED_PIN,HIGH);
     digitalWrite(YELLOW_LED_PIN,HIGH);
+
+    // CALIBRATE motion sensor and find average distance to hand
+    updateStatusLCD("Calibrating");
+    STATUS.avgDistMM = calibrateUltraSensor(TRIG_PIN, ECHO_PIN, SETUP_TIME_S);
+
+    // Set status to running
     updateStatusLCD("Running");
-    // CALIBRATE
     unsigned long timeStart = millis()/1000;
 
-    while(!STATUS.Stop) {
+    /* MAIN TEST LOOP */
+    while(!STATUS.Stop && (STATUS.distance < STATUS.avgDistMM * DIST_THRESHOLD)) {
+        // measure all thermistors
         MEASURE();
+
+        /* 0. Run safety check and DEBUG*/
         SAFETY();
         Serial.print(" RUNNING ");
         STATUS2Serial();
@@ -312,22 +323,33 @@ void START(){
         /* 1. ambient controller */
         STATUS.PWM_Ambient = controllerAmbient(GLASS_TEMP_SETPOINT);// &STATUS);
         writeToAmbientHeater(STATUS.PWM_Ambient);
+
         /* 2. measure temperatures and current measurement */
         STATUS.PWM_Focal = FOCAL_PWM_VAL;
+
+        /* 3. TODO run focal controller */
         writeToFocalHeater(STATUS.PWM_Focal);
-        /* 3. run focal controller
-        *
-        */
+
+        /* 4. Check for motion sensor inputs */
+        STATUS.distance = pollUltraSensor(TRIG_PIN, ECHO_PIN);
+
 
         STATUS.Time = millis()/1000 - timeStart;
         updateLCD(STATUS.Temp_Focal,STATUS.Time);
         delay(100);
 
     }
-    unsigned long timeEnd = millis()/1000;
-    STATUS.Results_Time = timeEnd-timeStart;
-    STATUS.Results_Temp = STATUS.Temp_Focal;
-    updateLCD(STATUS.Results_Temp,STATUS.Results_Time);
+
+    // NOTE: if we get to this point, one or more of the test stop conditions
+    //       have been reached
+    unsigned long timeEnd = millis()/1000;   // get end time
+    STATUS.Results_Time = timeEnd-timeStart; // update end time to STATUS
+    STATUS.Results_Temp = STATUS.Temp_Focal; // update end temp to STATUS
+    updateLCD(STATUS.Results_Temp,STATUS.Results_Time); // visiual indicator
+
+    STATUS.Stop = true;
+    STATUS.Done = true;
+
     return;
 }
 
@@ -383,10 +405,11 @@ void RESET_ISR() {
         STATUS.Stop   = false;
         STATUS.Running = false;
         STATUS.Done = false;
+        STATUS.distance = 0;
         //*STATUS = "Resetting...";
 
     }
-    resetTimer = millis();
+    // resetTimer = millis(); NOTE: replaced with Ambient controller
     return;
     // if system is ready or already running, change nothing
 }
@@ -591,7 +614,8 @@ void SAFETY(){
     //     }
     // }
     // DEBUG: changed from if() to while() because it wasnt stopping the test
-    while (STATUS.Temp_Ambient > SAFETY_CUTOFF_TEMP || STATUS.Temp_Focal > SAFETY_CUTOFF_TEMP) {
+    while (STATUS.Temp_Ambient > SAFETY_CUTOFF_TEMP_AMBIENT || STATUS.Temp_Focal > SAFETY_CUTOFF_TEMP) {
+        MEASURE();
         writeToFocalHeater(0);
         writeToAmbientHeater(0);
         updateStatusLCD("Overheated.");
@@ -611,6 +635,10 @@ void STATUS2Serial(){
       Serial.print( (int)STATUS.Temp[i]);
       Serial.print(", ");
     }
+    Serial.print("\t calib: ");
+    Serial.print(STATUS.avgDistMM);
+    Serial.print("\t dist: ");
+    Serial.print(STATUS.distance);
     Serial.print("      PWM_A: ");
     Serial.print(STATUS.PWM_Ambient);
     Serial.print(",     PWM_Focal: ");
